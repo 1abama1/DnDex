@@ -12,7 +12,7 @@ export function HomePage() {
     <div className="w-full flex flex-col items-center pb-24 text-text-primary">
       <div className="w-full max-w-[1200px] mx-auto px-6">
 
-        <section className="w-full pt-20 pb-16 flex flex-col items-center text-center">
+        {/* <section className="w-full pt-20 pb-16 flex flex-col items-center text-center">
           <h1 className="text-[48px] font-extrabold tracking-tight mb-6 leading-[1.2] max-w-[800px]">
             {t('home.heroTitle')}<span className="text-gold">{t('home.heroTitleHighlight')}</span>
           </h1>
@@ -35,9 +35,9 @@ export function HomePage() {
               </Link>
             )}
           </div>
-        </section>
+        </section> */}
 
-        <section id="catalog" className="mt-16 pt-8 border-t border-border text-left">
+        <section id="catalog" className="pt-4 border-t border-border text-left">
           <h2 className="text-3xl font-semibold text-text-primary mb-4">
             {t('home.availableCampaigns')}
           </h2>

@@ -37,7 +37,7 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-16 lg:py-24 animate-fade-in text-left">
+    <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-12 lg:py-24 animate-fade-in text-left">
       <div className="flex items-center gap-4 mb-8">
         <div className="p-3 rounded-2xl bg-gold/10">
           <LayoutDashboard size={28} className="text-gold" />

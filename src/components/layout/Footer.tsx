@@ -14,7 +14,7 @@ export function Footer() {
           {/* Links */}
           <div className="flex items-center gap-6 text-sm text-text-muted">
             <span className="flex items-center gap-1.5">
-              Made with <Heart size={14} className="text-crimson fill-crimson" /> for TTRPG community
+              Сделанно с <Heart size={14} className="text-crimson fill-crimson" /> для Даунов
             </span>
           </div>
 
