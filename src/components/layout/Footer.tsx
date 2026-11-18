@@ -1,34 +1,26 @@
-import { Dice5, ExternalLink, Heart } from 'lucide-react';
-
+import { ArrowUpRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Brand } from './Brand';
 export function Footer() {
+  const { t } = useTranslation();
   return (
-    <footer className="border-t border-border bg-bg-secondary/30 mt-auto">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          {/* Logo */}
-          <div className="flex items-center gap-2 text-text-muted">
-            <Dice5 size={18} className="text-gold/50" />
-            <span className="text-sm font-extrabold tracking-tight">DnDex</span>
-          </div>
-
-          {/* Links */}
-          <div className="flex items-center gap-6 text-sm text-text-muted">
-            <span className="flex items-center gap-1.5">
-              Сделанно с <Heart size={14} className="text-crimson fill-crimson" /> для Даунов
-            </span>
-          </div>
-
-          {/* Social */}
-          <div className="flex items-center gap-3">
-            <a
-              href="#"
-              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-all"
-              aria-label="GitHub"
-            >
-              <ExternalLink size={18} />
-            </a>
-          </div>
-        </div>
+    <footer className="site-footer">
+      <div className="page-shell footer-inner">
+        <Brand compact />
+        <p>
+          {t('footer.tagline')}
+          <br />
+          {t('footer.note')}
+        </p>
+        <a
+          className="footer-link"
+          href="https://github.com/1abama1/DnDex"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t('footer.source')}
+        >
+          GitHub <ArrowUpRight size={14} aria-hidden="true" />
+        </a>
       </div>
     </footer>
   );

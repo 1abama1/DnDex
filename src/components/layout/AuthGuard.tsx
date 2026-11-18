@@ -1,21 +1,25 @@
-import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-
-export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+import type { ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '@/hooks/auth-context';
+import { Button } from '@/components/ui/Button';
+import { LoadingIndicator } from '@/components/ui/Feedback';
+export function AuthGuard({ children }: { children: ReactNode }) {
+  const { user, loading, openAuth } = useAuth();
   const location = useLocation();
-
-  if (loading) {
+  const { t } = useTranslation();
+  if (loading) return <LoadingIndicator />;
+  if (!user)
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
+      <div className="page-shell page-content">
+        <div className="surface max-w-xl mx-auto text-center">
+          <h1 className="form-title">{t('auth.required')}</h1>
+          <p className="form-intro">{t('auth.requiredDescription')}</p>
+          <Button onClick={() => openAuth(location.pathname + location.search)}>
+            {t('common.signIn')}
+          </Button>
+        </div>
       </div>
     );
-  }
-
-  if (!user) {
-    return <Navigate to="/" state={{ from: location }} replace />;
-  }
-
-  return <>{children}</>;
+  return children;
 }

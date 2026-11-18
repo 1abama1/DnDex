@@ -1,42 +1,23 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
-import type { Profile } from '@/types/database';
-
+import { useAuth } from './auth-context';
+import { saveProfile } from '@/services/profiles';
+import { queryKeys } from '@/lib/queryKeys';
+import type { ProfileFormValues } from '@/lib/domain';
 export function useUpdateProfile() {
-  const queryClient = useQueryClient();
-  const { user, fetchProfile } = useAuth();
-
+  const client = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
-    mutationFn: async ({
-      username,
-      bio,
-      avatar_url,
-    }: {
-      username?: string;
-      bio?: string | null;
-      avatar_url?: string | null;
-    }) => {
-      if (!user) throw new Error('Must be logged in');
-
-      const updates: Partial<Profile> = {};
-      if (username !== undefined) updates.username = username;
-      if (bio !== undefined) updates.bio = bio;
-      if (avatar_url !== undefined) updates.avatar_url = avatar_url;
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', user.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data as Profile;
+    mutationFn: (values: ProfileFormValues) => {
+      if (!user) throw new Error('errors.permission');
+      return saveProfile(user.id, values);
     },
-    onSuccess: () => {
-      if (user) fetchProfile(user);
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    onSuccess: (data) => {
+      client.setQueryData(queryKeys.profile(data.id), data);
+      return Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.campaigns.all }),
+        client.invalidateQueries({ queryKey: queryKeys.participants.all }),
+        client.invalidateQueries({ queryKey: ['reviews'] }),
+      ]);
     },
   });
 }

@@ -1,145 +1,211 @@
-import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { Search, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Search, SlidersHorizontal, X, ArrowLeft, ArrowRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useCampaigns } from '@/hooks/useCampaigns';
+import { useDebounce } from '@/hooks/useDebounce';
+import { readFilters, writeFilters, campaignStatuses, PAGE_SIZE } from '@/lib/domain';
+import { isBackendConfigured } from '@/lib/supabase';
+import { SYSTEMS } from '@/lib/config';
 import { CampaignCard } from './CampaignCard';
 import { CampaignGridSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { SYSTEMS } from '@/lib/config';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { Input, Select } from '@/components/ui/Input';
+import { Alert, ErrorState } from '@/components/ui/Feedback';
 import type { CampaignFilters } from '@/types/database';
-
 export function CampaignGrid() {
-  const [filters, setFilters] = useState<CampaignFilters>({
-    sortBy: 'date',
-    type: 'all',
-    system: 'all',
-  });
-  const [searchInput, setSearchInput] = useState('');
+  const { t } = useTranslation();
+  const [params, setParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
-
-  const debouncedFilters = useMemo(
-    () => ({ ...filters, search: searchInput || undefined }),
-    [filters, searchInput]
+  const filters = readFilters(params);
+  const search = useDebounce(filters.search, 300);
+  const query = useCampaigns(
+    { ...filters, search: search?.trim() },
+    search === filters.search && isBackendConfigured,
   );
-
-  const { data: campaigns, isLoading } = useCampaigns(debouncedFilters);
-
+  const update = (changes: Partial<CampaignFilters>, replace = false) =>
+    setParams(writeFilters({ ...filters, ...changes, page: changes.page ?? 1 }), {
+      replace,
+      preventScrollReset: true,
+    });
+  const active = [
+    filters.type !== 'all',
+    filters.system !== 'all',
+    filters.status !== 'all',
+    filters.available,
+    !!filters.search,
+  ].filter(Boolean).length;
+  const reset = () => setParams({}, { preventScrollReset: true });
+  const totalPages = Math.max(1, Math.ceil((query.data?.count ?? 0) / PAGE_SIZE));
+  const isUpdating = query.isFetching || search !== filters.search;
   return (
-    <div className="mt-4 space-y-10">
-      <div className="w-full">
-        <div className="flex gap-3 mb-6">
-          <div className="flex-1 relative">
-            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input
-              type="text"
-              placeholder="Search campaigns..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full h-[44px] bg-bg-tertiary rounded-[10px] pl-[44px] pr-[16px] text-text-primary placeholder:text-text-muted border-none focus:outline-none focus:ring-1 focus:ring-gold/30 transition-all font-medium"
-            />
-          </div>
-          <Button
-            variant={showFilters ? 'outline' : 'secondary'}
-            onClick={() => setShowFilters(!showFilters)}
-            icon={<SlidersHorizontal size={16} />}
-            className="h-[44px] px-4 rounded-[10px] whitespace-nowrap bg-bg-tertiary border-none text-text-primary hover:bg-white/10"
-          >
-            <span>Filters</span>
-          </Button>
+    <div className="discovery">
+      <div className="discovery-tools">
+        <div className="search-field">
+          <Search size={18} aria-hidden="true" />
+          <Input
+            aria-label={t('discovery.searchLabel')}
+            type="search"
+            maxLength={100}
+            placeholder={t('discovery.search')}
+            value={filters.search}
+            onChange={(e) => update({ search: e.target.value }, true)}
+          />
         </div>
-
-        {showFilters && (
-          <div className="glass-card-static p-4 animate-fade-in">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Type
-                </label>
-                <div className="flex gap-1.5">
-                  {[
-                    { value: 'all', label: 'All' },
-                    { value: 'campaign', label: 'Campaign' },
-                    { value: 'one_shot', label: 'One-Shot' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setFilters((f) => ({ ...f, type: opt.value as CampaignFilters['type'] }))}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
-                        filters.type === opt.value
-                          ? 'bg-gold/15 text-gold border border-gold/30'
-                          : 'bg-bg-tertiary text-text-muted hover:text-text-secondary border border-transparent'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Game System
-                </label>
-                <select
-                  value={filters.system || 'all'}
-                  onChange={(e) => setFilters((f) => ({ ...f, system: e.target.value }))}
-                  className="w-full px-3 py-1.5 bg-bg-tertiary border border-border rounded-md text-sm text-text-primary focus:outline-none focus:border-gold/50 transition-all cursor-pointer appearance-none"
-                >
-                  <option value="all">All Systems</option>
-                  {SYSTEMS.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                  Sort By
-                </label>
-                <div className="flex gap-1.5">
-                  {[
-                    { value: 'date', label: 'Newest' },
-                    { value: 'rating', label: 'Rating' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setFilters((f) => ({ ...f, sortBy: opt.value as 'date' | 'rating' }))}
-                      className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer ${
-                        filters.sortBy === opt.value
-                          ? 'bg-gold/15 text-gold border border-gold/30'
-                          : 'bg-bg-tertiary text-text-muted hover:text-text-secondary border border-transparent'
-                      }`}
-                    >
-                      <ArrowUpDown size={12} />
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <Button
+          variant={showFilters ? 'outline' : 'secondary'}
+          icon={<SlidersHorizontal size={15} />}
+          aria-expanded={showFilters}
+          aria-controls="campaign-filters"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {t('discovery.filters')}
+          {active > 0 && <span>({active})</span>}
+        </Button>
+        <div className="sort-field">
+          <Select
+            aria-label={t('discovery.sort')}
+            value={filters.sortBy}
+            onChange={(e) => update({ sortBy: e.target.value === 'rating' ? 'rating' : 'date' })}
+            options={[
+              { value: 'date', label: t('discovery.newest') },
+              { value: 'rating', label: t('discovery.rating') },
+            ]}
+          />
+        </div>
       </div>
-
-      {isLoading ? (
+      {showFilters && (
+        <div className="filter-panel animate-fade-in" id="campaign-filters">
+          <Select
+            label={t('discovery.system')}
+            value={filters.system}
+            onChange={(e) => update({ system: e.target.value })}
+            options={[
+              { value: 'all', label: t('discovery.allSystems') },
+              ...SYSTEMS.map((s) => ({
+                value: s,
+                label: s === 'Other' ? t('discovery.other') : s,
+              })),
+            ]}
+          />
+          <Select
+            label={t('discovery.status')}
+            value={filters.status}
+            onChange={(e) => {
+              const status = campaignStatuses.find((s) => s === e.target.value) ?? 'all';
+              update({ status, available: status !== 'open' ? false : filters.available });
+            }}
+            options={[
+              { value: 'all', label: t('discovery.allStatuses') },
+              ...campaignStatuses.map((s) => ({ value: s, label: t(`campaign.status.${s}`) })),
+            ]}
+          />
+          <div className="flex items-end">
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={filters.available}
+                onChange={(e) =>
+                  update({
+                    available: e.target.checked,
+                    ...(e.target.checked ? { status: 'open' } : {}),
+                  })
+                }
+              />
+              {t('discovery.available')}
+            </label>
+          </div>
+          <div className="filter-footer">
+            <span className="text-xs text-text-muted">
+              {t('discovery.active', { count: active })}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<X size={14} />}
+              onClick={reset}
+              disabled={!active}
+            >
+              {t('discovery.reset')}
+            </Button>
+          </div>
+        </div>
+      )}
+      <div className="catalog-types" aria-label={t('discovery.type')}>
+        {(['all', 'campaign', 'one_shot'] as const).map((type) => (
+          <button
+            key={type}
+            type="button"
+            aria-pressed={filters.type === type}
+            onClick={() => update({ type })}
+          >
+            {t(type === 'all' ? 'discovery.all' : `campaign.type.${type}`)}
+          </button>
+        ))}
+        <p className="result-count" role="status" aria-live="polite">
+          {isUpdating && isBackendConfigured
+            ? t('discovery.updating')
+            : query.data && !query.isError
+              ? t('discovery.results', { count: query.data.count })
+              : ''}
+        </p>
+      </div>
+      {!isBackendConfigured ? (
+        <Alert variant="info">{t('errors.configuration')}</Alert>
+      ) : query.isError ? (
+        <ErrorState
+          error={query.error}
+          onRetry={() => {
+            void query.refetch();
+          }}
+        />
+      ) : query.isPending ? (
         <CampaignGridSkeleton />
-      ) : !campaigns || campaigns.length === 0 ? (
+      ) : !query.data.campaigns.length ? (
         <EmptyState
-          title="No campaigns yet"
-          description="Be the first to start an adventure"
+          title={t(active ? 'discovery.emptyTitle' : 'discovery.firstTitle')}
+          description={t(active ? 'discovery.emptyDescription' : 'discovery.firstDescription')}
           action={
-            <Link to="/create">
-              <Button className="mt-2">Create Campaign</Button>
-            </Link>
+            active ? (
+              <Button variant="outline" onClick={reset}>
+                {t('discovery.reset')}
+              </Button>
+            ) : (
+              <LinkButton to="/create">{t('common.createGame')}</LinkButton>
+            )
           }
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {campaigns.map((campaign) => (
-            <CampaignCard key={campaign.id} campaign={campaign} />
-          ))}
-        </div>
+        <>
+          <div className="campaign-grid" aria-busy={isUpdating}>
+            {query.data.campaigns.map((c) => (
+              <CampaignCard campaign={c} key={c.id} />
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <nav className="pagination" aria-label={t('discovery.pagination')}>
+              <Button
+                variant="secondary"
+                disabled={filters.page === 1 || query.isPlaceholderData}
+                onClick={() => update({ page: (filters.page ?? 1) - 1 })}
+                icon={<ArrowLeft size={14} />}
+              >
+                {t('common.previous')}
+              </Button>
+              <span>{t('common.page', { page: filters.page, total: totalPages })}</span>
+              <Button
+                variant="secondary"
+                disabled={(filters.page ?? 1) >= totalPages || query.isPlaceholderData}
+                onClick={() => update({ page: (filters.page ?? 1) + 1 })}
+              >
+                {t('common.next')}
+                <ArrowRight size={14} aria-hidden="true" />
+              </Button>
+            </nav>
+          )}
+        </>
       )}
     </div>
   );

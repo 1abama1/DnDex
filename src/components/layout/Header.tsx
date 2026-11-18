@@ -1,222 +1,161 @@
 import { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Dice5, Menu, X, Plus, LayoutDashboard, LogOut, LogIn, User, Languages } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { Link, NavLink, useLocation } from 'react-router-dom';
+import { Menu, X, Plus, LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '@/hooks/auth-context';
 import { useDMCampaigns } from '@/hooks/useCampaigns';
-import { usePendingRequests, useParticipantsRealtime } from '@/hooks/useParticipants';
-import { Button } from '@/components/ui/Button';
+import { usePendingRequests } from '@/hooks/useParticipants';
+import { Button, IconButton } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { useTranslation } from 'react-i18next';
-
+import { Brand } from './Brand';
+import { Alert } from '@/components/ui/Feedback';
+import { errorKey } from '@/lib/errors';
 export function Header() {
   const { t, i18n } = useTranslation();
-  const { user, profile, signOut } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-  const navigate = useNavigate();
+  const { user, profile, loading, openAuth, signOut } = useAuth();
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   const location = useLocation();
-
-  const isActive = (path: string) => location.pathname === path;
-
-  // Notification logic
-  const { data: dmCampaigns } = useDMCampaigns(user?.id);
-  const campaignIds = dmCampaigns?.map((c) => c.id) ?? [];
-  const { data: pendingRequests } = usePendingRequests(campaignIds);
-  const hasNotifications = (pendingRequests?.length ?? 0) > 0;
-
-  // Subscribe to realtime updates globally
-  useParticipantsRealtime(campaignIds);
-
-  const handleAuth = () => {
-    if (user) {
-      signOut();
-    } else {
-      setAuthOpen(true);
+  const menuOpen = openPath === location.key;
+  const { data: campaigns } = useDMCampaigns(user?.id);
+  const { data: pending } = usePendingRequests(campaigns?.map((c) => c.id) ?? []);
+  const toggleLanguage = () => {
+    void i18n.changeLanguage(i18n.resolvedLanguage === 'ru' ? 'en' : 'ru');
+  };
+  const logout = async () => {
+    setSigningOut(true);
+    setError(null);
+    try {
+      await signOut();
+      setOpenPath(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSigningOut(false);
     }
   };
-  const toggleLanguage = () => {
-    i18n.changeLanguage(i18n.language === 'ru' ? 'en' : 'ru');
+  const create = () => {
+    openAuth('/create');
   };
-
   return (
     <>
-      <header className="sticky top-0 z-40 bg-bg-primary/80 backdrop-blur-xl border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <Link
-              to="/"
-              className="flex items-center gap-2.5 text-text-primary hover:text-gold transition-colors group"
+      <header className="site-header">
+        <div className="page-shell header-inner">
+          <Brand />
+          <nav className="desktop-nav" aria-label={t('common.menu')}>
+            <NavLink to="/" end className="nav-link">
+              {t('common.catalog')}
+            </NavLink>
+            {user && (
+              <NavLink to="/dashboard" className="nav-link">
+                {t('common.dashboard')}
+                {!!pending?.length && (
+                  <span className="notification-dot" aria-label={t('dashboard.pending')} />
+                )}
+              </NavLink>
+            )}
+          </nav>
+          <div className="header-actions">
+            <button
+              type="button"
+              className="language-button"
+              onClick={toggleLanguage}
+              aria-label={t('common.language')}
             >
-              <div className="p-1.5 rounded-lg bg-gold/10 group-hover:bg-gold/20 transition-colors">
-                <Dice5 size={22} className="text-gold" />
-              </div>
-              <span className="text-xl font-extrabold tracking-tight">
-                DnDex
-              </span>
-            </Link>
-
-            {/* Desktop Nav */}
-            <nav className="hidden md:flex items-center gap-1">
-              <Link
-                to="/"
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${isActive('/')
-                  ? 'text-gold bg-gold/10'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
-                  }`}
-              >
-                {t('common.catalog')}
-              </Link>
-              {user && (
+              {i18n.resolvedLanguage === 'ru' ? 'RU' : 'EN'} <span aria-hidden="true">⌄</span>
+            </button>
+            <div className="desktop-auth flex items-center gap-3">
+              {loading ? (
+                <span className="skeleton w-24 h-10" />
+              ) : user ? (
                 <>
-                  <Link
-                    to="/dashboard"
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all relative group ${isActive('/dashboard')
-                      ? 'text-gold bg-gold/10'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
-                      }`}
-                  >
-                    {t('common.dashboard')}
-                    {hasNotifications && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-crimson rounded-full border border-bg-primary" />
-                    )}
+                  <Link to="/profile" aria-label={t('common.editProfile')}>
+                    <Avatar
+                      src={profile?.avatar_url}
+                      username={profile?.username ?? t('common.unknown')}
+                      size="sm"
+                    />
                   </Link>
-                  <Button
-                    size="sm"
-                    onClick={() => navigate('/create')}
-                    icon={<Plus size={16} />}
-                  >
-                    {t('common.createGame')}
-                  </Button>
+                  <IconButton label={t('common.signOut')} onClick={logout} loading={signingOut}>
+                    <LogOut size={17} />
+                  </IconButton>
                 </>
-              )}
-            </nav>
-
-            {/* Auth / Profile */}
-            <div className="hidden md:flex items-center gap-4">
-              <button
-                onClick={toggleLanguage}
-                className="px-3 py-2 rounded-lg text-xs font-bold text-text-muted hover:text-gold hover:bg-gold/10 transition-all cursor-pointer uppercase"
-                title="Switch Language"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Languages size={14} />
-                  {i18n.language === 'ru' ? 'RU' : 'EN'}
-                </div>
-              </button>
-
-              {user ? (
-                <div className="flex items-center gap-3">
-                  <Link
-                    to="/profile"
-                    className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                  >
-                    <Avatar src={profile?.avatar_url} username={profile?.username ?? user.email ?? 'User'} size="sm" />
-                    <span className="text-sm font-medium text-text-primary">{profile?.username ?? user.email?.split('@')[0] ?? 'Player'}</span>
-                  </Link>
-                  <button
-                    onClick={handleAuth}
-                    className="p-2 rounded-lg text-text-muted hover:text-crimson-light hover:bg-crimson/10 transition-all cursor-pointer"
-                    title={t('common.signOut')}
-                  >
-                    <LogOut size={18} />
-                  </button>
-                </div>
               ) : (
-                <Button variant="outline" size="sm" onClick={handleAuth} icon={<LogIn size={16} />} className="border-white/10 hover:bg-white/5">
+                <Button variant="ghost" onClick={() => openAuth()}>
                   {t('common.signIn')}
                 </Button>
               )}
+              {user ? (
+                <Link to="/create" className="button button--primary button--sm">
+                  <Plus size={14} aria-hidden="true" />
+                  {t('common.createGame')}
+                </Link>
+              ) : (
+                <Button size="sm" icon={<Plus size={14} />} onClick={create} disabled={loading}>
+                  {t('common.createGame')}
+                </Button>
+              )}
             </div>
-
-            {/* Mobile menu button */}
-            <button
-              className="md:hidden p-2 text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-              onClick={() => setMenuOpen(!menuOpen)}
+            <IconButton
+              className="mobile-toggle"
+              label={t('common.menu')}
+              aria-expanded={menuOpen}
+              aria-controls="mobile-navigation"
+              onClick={() => setOpenPath(menuOpen ? null : location.key)}
             >
               {menuOpen ? <X size={22} /> : <Menu size={22} />}
-            </button>
+            </IconButton>
           </div>
         </div>
-
-        {/* Mobile Nav */}
         {menuOpen && (
-          <div className="md:hidden border-t border-border bg-bg-secondary/95 backdrop-blur-xl animate-fade-in">
-            <div className="px-4 py-4 space-y-2">
-              <Link
-                to="/"
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all"
+          <nav
+            id="mobile-navigation"
+            className="page-shell mobile-nav"
+            aria-label={t('common.menu')}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setOpenPath(null);
+            }}
+          >
+            <Link to="/" onClick={() => setOpenPath(null)}>
+              {t('common.catalog')}
+            </Link>
+            {user && (
+              <>
+                <Link to="/dashboard">
+                  {t('common.dashboard')}
+                  {!!pending?.length && <span className="notification-dot" />}
+                </Link>
+                <Link to="/profile">{t('common.editProfile')}</Link>
+                <Link to="/create">{t('common.createGame')}</Link>
+              </>
+            )}
+            {!loading && (
+              <Button
+                variant="outline"
+                loading={signingOut}
+                onClick={
+                  user
+                    ? logout
+                    : () => {
+                        openAuth();
+                      }
+                }
               >
-                <Dice5 size={18} /> {t('common.catalog')}
-              </Link>
-              {user && (
-                <>
-                  <Link
-                    to="/dashboard"
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <LayoutDashboard size={18} /> {t('common.dashboard')}
-                    </div>
-                    {hasNotifications && (
-                      <span className="w-2 h-2 bg-crimson rounded-full" />
-                    )}
-                  </Link>
-                  <Link
-                    to="/create"
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold text-gold hover:bg-gold/10 transition-all border border-gold/20"
-                  >
-                    <Plus size={18} /> {t('common.createGame')}
-                  </Link>
-                </>
-              )}
-              <div className="pt-2 border-t border-border">
-                {user && (
-                  <Link
-                    to="/profile"
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all"
-                  >
-                    <User size={18} /> {t('common.editProfile')}
-                  </Link>
-                )}
-                <button
-                  onClick={() => {
-                    toggleLanguage();
-                    setMenuOpen(false);
-                  }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all cursor-pointer"
-                >
-                  <Languages size={18} /> {i18n.language === 'ru' ? 'English' : 'Русский'}
-                </button>
-                <button
-                  onClick={() => {
-                    handleAuth();
-                    setMenuOpen(false);
-                  }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-white/5 transition-all cursor-pointer"
-                >
-                  {user ? (
-                    <>
-                      <LogOut size={18} /> {t('common.signOut')}
-                    </>
-                  ) : (
-                    <>
-                      <LogIn size={18} /> {t('common.signIn')}
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
+                {t(user ? 'common.signOut' : 'common.signIn')}
+              </Button>
+            )}
+            {!user && <Button onClick={create}>{t('common.createGame')}</Button>}
+          </nav>
         )}
       </header>
-
-      <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
+      {error !== null && (
+        <div className="page-shell mt-4">
+          <Alert>{t(errorKey(error))}</Alert>
+        </div>
+      )}
+      <AuthModal />
     </>
   );
 }

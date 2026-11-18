@@ -1,59 +1,47 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-
+import { statusMetadata } from '@/lib/domain';
+import type { CampaignStatus, CampaignType, ParticipantStatus } from '@/types/database';
 type BadgeVariant = 'default' | 'gold' | 'purple' | 'emerald' | 'crimson' | 'outline';
-
-interface BadgeProps {
+export function Badge({
+  children,
+  variant = 'default',
+  className = '',
+  icon,
+}: {
   children: ReactNode;
   variant?: BadgeVariant;
   className?: string;
   icon?: ReactNode;
-}
-
-const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-white/5 text-text-secondary border-white/10',
-  gold: 'bg-gold/10 text-gold-light border-gold/25',
-  purple: 'bg-purple/10 text-purple-light border-purple/25',
-  emerald: 'bg-emerald/10 text-emerald border-emerald/25',
-  crimson: 'bg-crimson/10 text-crimson-light border-crimson/25',
-  outline: 'bg-transparent text-text-secondary border-border',
-};
-
-export function Badge({ children, variant = 'default', className = '', icon }: BadgeProps) {
+}) {
   return (
-    <span
-      className={`
-        inline-flex items-center gap-1 px-2.5 py-0.5
-        text-xs font-medium rounded-full border
-        ${variantStyles[variant]}
-        ${className}
-      `}
-    >
-      {icon && <span className="shrink-0">{icon}</span>}
+    <span className={`badge badge--${variant} ${className}`}>
+      {icon && <span aria-hidden="true">{icon}</span>}
       {children}
     </span>
   );
 }
-
-// Predefined badge for campaign type
-export function TypeBadge({ type }: { type: 'campaign' | 'one_shot' }) {
+export function TypeBadge({ type }: { type: CampaignType }) {
   const { t } = useTranslation();
   return (
-    <Badge variant={type === 'campaign' ? 'purple' : 'gold'}>
-      {type === 'campaign' ? `⚔️ ${t('campaign.type.campaign')}` : `🎯 ${t('campaign.type.one_shot')}`}
+    <Badge variant={type === 'campaign' ? 'purple' : 'gold'}>{t(`campaign.type.${type}`)}</Badge>
+  );
+}
+export function StatusBadge({ status }: { status: CampaignStatus }) {
+  const { t } = useTranslation();
+  const meta = statusMetadata[status];
+  return (
+    <Badge variant={meta.variant}>
+      <span className="status-dot" aria-hidden="true" />
+      {t(meta.key)}
     </Badge>
   );
 }
-
-// Predefined badge for campaign status
-export function StatusBadge({ status }: { status: string }) {
+export function ParticipationBadge({ status }: { status: ParticipantStatus }) {
   const { t } = useTranslation();
-  const config: Record<string, { variant: BadgeVariant; label: string }> = {
-    open: { variant: 'emerald', label: `🟢 ${t('campaign.status.open')}` },
-    in_progress: { variant: 'gold', label: `🔶 ${t('campaign.status.open')}` }, // Assuming open for now as placeholder
-    completed: { variant: 'default', label: `✅ ${t('campaign.status.closed')}` },
-    cancelled: { variant: 'crimson', label: `🔴 ${t('campaign.status.closed')}` },
-  };
-  const c = config[status] ?? config.open;
-  return <Badge variant={c.variant}>{c.label}</Badge>;
+  return (
+    <Badge variant={status === 'accepted' ? 'emerald' : status === 'pending' ? 'gold' : 'crimson'}>
+      {t(`campaign.participantStatus.${status}`)}
+    </Badge>
+  );
 }

@@ -1,97 +1,87 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Input, Textarea } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
-import { Avatar } from '@/components/ui/Avatar';
-import { useUpdateProfile } from '@/hooks/useProfile';
-import { useAuth } from '@/hooks/useAuth';
-import { User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import i18next from 'i18next';
-
-const schema = z.object({
-  username: z.string().min(3, 'auth.usernameMin').max(20, 'auth.usernameMax'),
-  bio: z.string().max(300, 'campaign.validation.bioMax').optional(), // Adding bioMax to translations as well
-  avatar_url: z.string().url('campaign.validation.invalidUrl').optional().or(z.literal('')),
-});
-
-type FormData = z.infer<typeof schema>;
-
-export function ProfileForm() {
+import { useAuth } from '@/hooks/auth-context';
+import { useUpdateProfile } from '@/hooks/useProfile';
+import { profileFormSchema, type ProfileFormValues } from '@/lib/domain';
+import { errorKey } from '@/lib/errors';
+import { Avatar } from '@/components/ui/Avatar';
+import { Button } from '@/components/ui/Button';
+import { Input, Textarea } from '@/components/ui/Input';
+import { Alert } from '@/components/ui/Feedback';
+import { UnsavedChangesGuard } from '@/components/ui/UnsavedChangesGuard';
+import type { Profile } from '@/types/database';
+export function ProfileForm({ profile }: { profile: Profile }) {
   const { t } = useTranslation();
-  const { user, profile } = useAuth();
-  const updateProfile = useUpdateProfile();
-
+  const { user } = useAuth();
+  const update = useUpdateProfile();
+  const [error, setError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm({
-    resolver: zodResolver(schema),
+  } = useForm<ProfileFormValues>({
+    resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      username: profile?.username ?? '',
-      bio: profile?.bio ?? '',
-      avatar_url: profile?.avatar_url ?? '',
+      username: profile.username,
+      bio: profile.bio ?? '',
+      avatar_url: profile.avatar_url ?? '',
     },
   });
-
-  const onSubmit = async (data: Record<string, unknown>) => {
-    const typed = data as FormData;
-    await updateProfile.mutateAsync({
-      username: typed.username,
-      bio: typed.bio || null,
-      avatar_url: typed.avatar_url || null,
-    });
+  const submit = async (values: ProfileFormValues) => {
+    setError(null);
+    try {
+      await update.mutateAsync(values);
+      reset(values);
+    } catch (err) {
+      setError(errorKey(err));
+    }
   };
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <div className="flex items-center gap-4 mb-2">
-        <Avatar
-          src={profile?.avatar_url}
-          username={profile?.username ?? user?.email ?? 'User'}
-          size="lg"
-        />
-        <div>
-          <div className="text-lg font-bold text-text-primary">{profile?.username}</div>
-          <div className="text-sm text-text-muted">{user?.email}</div>
+    <>
+      <UnsavedChangesGuard dirty={isDirty && !isSubmitting} />
+      <form onSubmit={handleSubmit(submit)} className="space-y-6" noValidate>
+        <div className="flex items-center gap-4 mb-8">
+          <Avatar username={profile.username} src={profile.avatar_url} size="lg" />
+          <div>
+            <h2 className="text-3xl">{profile.username}</h2>
+            <p className="text-text-muted text-xs mt-2 break-all">{user?.email}</p>
+          </div>
         </div>
-      </div>
-
-      <Input
-        label={t('auth.username')}
-        placeholder="Archmage_Vex"
-        error={errors.username?.message ? t(errors.username.message) : undefined}
-        {...register('username')}
-      />
-
-      <Input
-        label={t('profile.avatarUrl')}
-        placeholder="https://example.com/avatar.png"
-        error={errors.avatar_url?.message ? t(errors.avatar_url.message) : undefined}
-        {...register('avatar_url')}
-      />
-
-      <Textarea
-        label={t('profile.bio')}
-        placeholder={t('profile.bioPlaceholder')}
-        className="min-h-[100px]"
-        error={errors.bio?.message ? t(errors.bio.message) : undefined}
-        {...register('bio')}
-      />
-
-      <div className="flex gap-3 pt-2">
-        <Button
-          type="submit"
-          loading={isSubmitting}
-          disabled={!isDirty}
-          icon={<User size={16} />}
-          size="lg"
-        >
-          {t('common.actions.save')}
-        </Button>
-      </div>
-    </form>
+        <Input
+          label={t('auth.username')}
+          maxLength={20}
+          required
+          autoComplete="nickname"
+          error={errors.username?.message && t(errors.username.message)}
+          {...register('username')}
+        />
+        <Input
+          label={t('profile.avatarUrl')}
+          type="url"
+          hint={t('campaign.validation.invalidUrl')}
+          error={errors.avatar_url?.message && t(errors.avatar_url.message)}
+          {...register('avatar_url')}
+        />
+        <Textarea
+          label={t('profile.bio')}
+          placeholder={t('profile.bioPlaceholder')}
+          maxLength={300}
+          error={errors.bio?.message && t(errors.bio.message)}
+          {...register('bio')}
+        />
+        {error && <Alert>{t(error)}</Alert>}
+        {update.isSuccess && !isDirty && (
+          <Alert variant="success">{t('profile.updateSuccess')}</Alert>
+        )}
+        <div className="form-actions">
+          <Button type="submit" loading={isSubmitting} disabled={!isDirty}>
+            {t('common.actions.save')}
+          </Button>
+        </div>
+      </form>
+    </>
   );
 }

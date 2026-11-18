@@ -1,109 +1,115 @@
-import { type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactNode, forwardRef } from 'react';
-
-const baseInputStyles = `
-  w-full px-4 py-2.5 bg-bg-tertiary border border-border rounded-lg
-  text-text-primary placeholder:text-text-muted
-  focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/20
-  transition-all duration-200
-  disabled:opacity-50 disabled:cursor-not-allowed
-`;
-
-const errorBorderStyles = 'border-crimson/50 focus:border-crimson focus:ring-crimson/20';
-
-function FieldWrapper({
-  label,
-  error,
-  id,
-  children,
-}: {
+import {
+  forwardRef,
+  useId,
+  type InputHTMLAttributes,
+  type TextareaHTMLAttributes,
+  type SelectHTMLAttributes,
+  type ReactNode,
+} from 'react';
+interface FieldProps {
   label?: string;
   error?: string;
-  id?: string;
-  children: ReactNode;
-}) {
-  const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+  hint?: string;
+}
+function Field({
+  label,
+  error,
+  hint,
+  id,
+  children,
+}: FieldProps & { id: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-text-secondary">
-          {label}
-        </label>
-      )}
+    <div className="form-field">
+      {label && <label htmlFor={id}>{label}</label>}
       {children}
-      {error && <p className="text-xs text-crimson-light">{error}</p>}
+      {hint && (
+        <p id={`${id}-hint`} className="field-hint">
+          {hint}
+        </p>
+      )}
+      {error && (
+        <p id={`${id}-error`} className="field-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
-
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  error?: string;
+function description(id: string, hint?: string, error?: string, existing?: string) {
+  return (
+    [existing, hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ') || undefined
+  );
 }
-
-export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} error={error} id={id}>
+export const Input = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement> & FieldProps
+>(function Input(
+  { label, error, hint, id, className = '', 'aria-describedby': describedBy, ...props },
+  ref,
+) {
+  const generated = useId();
+  const fieldId = id ?? generated;
+  return (
+    <Field {...{ label, error, hint }} id={fieldId}>
       <input
-        ref={ref}
-        id={id || label?.toLowerCase().replace(/\s+/g, '-')}
-        className={`${baseInputStyles} ${error ? errorBorderStyles : ''} ${className}`}
         {...props}
+        ref={ref}
+        id={fieldId}
+        className={`field-input ${className}`}
+        aria-invalid={!!error || undefined}
+        aria-describedby={description(fieldId, hint, error, describedBy)}
       />
-    </FieldWrapper>
-  )
-);
-
-Input.displayName = 'Input';
-
-interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label?: string;
-  error?: string;
-}
-
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} error={error} id={id}>
+    </Field>
+  );
+});
+export const Textarea = forwardRef<
+  HTMLTextAreaElement,
+  TextareaHTMLAttributes<HTMLTextAreaElement> & FieldProps
+>(function Textarea(
+  { label, error, hint, id, className = '', 'aria-describedby': describedBy, ...props },
+  ref,
+) {
+  const generated = useId();
+  const fieldId = id ?? generated;
+  return (
+    <Field {...{ label, error, hint }} id={fieldId}>
       <textarea
-        ref={ref}
-        id={id || label?.toLowerCase().replace(/\s+/g, '-')}
-        className={`${baseInputStyles} resize-y min-h-[100px] ${error ? errorBorderStyles : ''} ${className}`}
         {...props}
+        ref={ref}
+        id={fieldId}
+        className={`field-input field-textarea ${className}`}
+        aria-invalid={!!error || undefined}
+        aria-describedby={description(fieldId, hint, error, describedBy)}
       />
-    </FieldWrapper>
-  )
-);
-
-Textarea.displayName = 'Textarea';
-
-interface SelectProps extends InputHTMLAttributes<HTMLSelectElement> {
-  label?: string;
-  error?: string;
-  options: { value: string; label: string }[];
-}
-
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, className = '', id, ...props }, ref) => (
-    <FieldWrapper label={label} error={error} id={id}>
+    </Field>
+  );
+});
+export const Select = forwardRef<
+  HTMLSelectElement,
+  SelectHTMLAttributes<HTMLSelectElement> &
+    FieldProps & { options: { value: string; label: string }[] }
+>(function Select(
+  { label, error, hint, options, id, className = '', 'aria-describedby': describedBy, ...props },
+  ref,
+) {
+  const generated = useId();
+  const fieldId = id ?? generated;
+  return (
+    <Field {...{ label, error, hint }} id={fieldId}>
       <select
-        ref={ref}
-        id={id || label?.toLowerCase().replace(/\s+/g, '-')}
-        className={`
-          ${baseInputStyles} cursor-pointer appearance-none
-          bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%239b97b0%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]
-          bg-no-repeat bg-[right_0.75rem_center] bg-[length:1rem]
-          ${error ? 'border-crimson/50' : ''}
-          ${className}
-        `}
         {...props}
+        ref={ref}
+        id={fieldId}
+        className={`field-input field-select ${className}`}
+        aria-invalid={!!error || undefined}
+        aria-describedby={description(fieldId, hint, error, describedBy)}
       >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
           </option>
         ))}
       </select>
-    </FieldWrapper>
-  )
-);
-
-Select.displayName = 'Select';
+    </Field>
+  );
+});

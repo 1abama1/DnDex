@@ -1,109 +1,48 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from './auth-context';
 import { queryKeys } from '@/lib/queryKeys';
-import type { Review } from '@/types/database';
-
-export function useCampaignReviews(campaignId: string) {
+import { isCampaignId } from '@/lib/domain';
+import { refreshCampaign } from '@/lib/cache';
+import * as reviews from '@/services/reviews';
+export function useCampaignReviews(id: string) {
   return useQuery({
-    queryKey: queryKeys.reviews.campaign(campaignId),
-    queryFn: async (): Promise<Review[]> => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('*, author:profiles!author_id(*)')
-        .eq('campaign_id', campaignId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return (data ?? []) as Review[];
-    },
-    enabled: !!campaignId,
+    queryKey: queryKeys.reviews.campaign(id),
+    queryFn: () => reviews.getReviews(id),
+    enabled: isCampaignId(id),
   });
 }
-
-export function useSubmitReview() {
-  const queryClient = useQueryClient();
-
+export function useSaveReview() {
+  const client = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
-    mutationFn: async ({
-      campaignId,
-      authorId,
-      rating,
-      comment,
-    }: {
-      campaignId: string;
-      authorId: string;
-      rating: number;
-      comment: string;
-    }) => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .insert({ campaign_id: campaignId, author_id: authorId, rating, comment })
-        .select('*, author:profiles!author_id(*)')
-        .single();
-      if (error) throw error;
-      return data as Review;
-    },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.reviews.campaign(vars.campaignId), refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: ['campaign', vars.campaignId], refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all, refetchType: 'all' });
-    },
-  });
-}
-
-export function useUpdateReview() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      reviewId,
-      campaignId,
-      rating,
-      comment,
-    }: {
-      reviewId: string;
+    mutationFn: (input: {
       campaignId: string;
       rating: number;
       comment: string;
+      reviewId?: string;
     }) => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .update({ rating, comment })
-        .eq('id', reviewId)
-        .select('*, author:profiles!author_id(*)')
-        .single();
-      if (error) throw error;
-      return data as Review;
+      if (!user) throw new Error('errors.permission');
+      return reviews.saveReview(input, user.id);
     },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.reviews.campaign(vars.campaignId), refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: ['campaign', vars.campaignId], refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all, refetchType: 'all' });
-    },
+    onSuccess: (_data, vars) =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.reviews.campaign(vars.campaignId) }),
+        refreshCampaign(client, vars.campaignId),
+      ]),
   });
 }
-
 export function useDeleteReview() {
-  const queryClient = useQueryClient();
-
+  const client = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
-    mutationFn: async ({
-      reviewId,
-      campaignId,
-    }: {
-      reviewId: string;
-      campaignId: string;
-    }) => {
-      const { error } = await supabase
-        .from('reviews')
-        .delete()
-        .eq('id', reviewId);
-      if (error) throw error;
+    mutationFn: ({ reviewId, campaignId }: { reviewId: string; campaignId: string }) => {
+      if (!user) throw new Error('errors.permission');
+      return reviews.removeReview(reviewId, campaignId, user.id);
     },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.reviews.campaign(vars.campaignId), refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: ['campaign', vars.campaignId], refetchType: 'all' });
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all, refetchType: 'all' });
-    },
+    onSuccess: (_data, vars) =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.reviews.campaign(vars.campaignId) }),
+        refreshCampaign(client, vars.campaignId),
+      ]),
   });
 }

@@ -1,37 +1,30 @@
+import { useTranslation } from 'react-i18next';
 export function Skeleton({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={`bg-bg-tertiary rounded-lg animate-shimmer ${className}`}
-    />
-  );
+  return <div aria-hidden="true" className={`skeleton ${className}`} />;
 }
-
 export function CampaignCardSkeleton() {
   return (
-    <div className="glass-card-static p-0 overflow-hidden">
-      <Skeleton className="w-full h-44 rounded-none rounded-t-lg" />
-      <div className="p-5 space-y-3">
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-4 w-1/2" />
-        <div className="flex gap-2">
-          <Skeleton className="h-5 w-20 rounded-full" />
-          <Skeleton className="h-5 w-16 rounded-full" />
-        </div>
-        <div className="flex items-center justify-between pt-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-16" />
-        </div>
+    <div className="campaign-card" aria-hidden="true">
+      <Skeleton className="aspect-video w-full" />
+      <div className="p-6 space-y-5">
+        <Skeleton className="h-8 w-4/5" />
+        <Skeleton className="h-5 w-3/5" />
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="h-4 w-2/3" />
       </div>
     </div>
   );
 }
-
 export function CampaignGridSkeleton({ count = 6 }: { count?: number }) {
+  const { t } = useTranslation();
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {Array.from({ length: count }, (_, i) => (
-        <CampaignCardSkeleton key={i} />
-      ))}
+    <div role="status">
+      <span className="sr-only">{t('common.loading')}</span>
+      <div className="campaign-grid">
+        {Array.from({ length: count }, (_, i) => (
+          <CampaignCardSkeleton key={i} />
+        ))}
+      </div>
     </div>
   );
 }

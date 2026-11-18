@@ -62,4 +62,6 @@ export interface CampaignFilters {
   system?: string | 'all';
   sortBy?: 'date' | 'rating';
   status?: CampaignStatus | 'all';
+  available?: boolean;
+  page?: number;
 }

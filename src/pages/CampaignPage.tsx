@@ -1,187 +1,192 @@
-import { useParams, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { ArrowLeft, Swords, Trash2, Pencil } from 'lucide-react';
-import { useCampaign, useDeleteCampaign } from '@/hooks/useCampaigns';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { useAuth } from '@/hooks/auth-context';
+import { useCampaign, useCampaignDiscord, useDeleteCampaign } from '@/hooks/useCampaigns';
 import {
   useCampaignParticipants,
-  useMyParticipation,
   useJoinCampaign,
-  useParticipantsRealtime,
+  useMyParticipation,
+  useWithdraw,
 } from '@/hooks/useParticipants';
-import { useCampaignReviews, useSubmitReview, useUpdateReview, useDeleteReview } from '@/hooks/useReviews';
-import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from 'react-i18next';
+import { useToast } from '@/hooks/toast-context';
+import { isCampaignId } from '@/lib/domain';
+import { errorKey } from '@/lib/errors';
 import { Button } from '@/components/ui/Button';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { Alert, ErrorState, LoadingIndicator } from '@/components/ui/Feedback';
 import { Modal } from '@/components/ui/Modal';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { Markdown } from '@/components/ui/Markdown';
 import { CampaignHeader } from '@/components/campaigns/CampaignHeader';
 import { CampaignPlayers } from '@/components/campaigns/CampaignPlayers';
 import { CampaignReviews } from '@/components/campaigns/CampaignReviews';
-
+import { ParticipationPanel } from '@/components/campaigns/ParticipationPanel';
+import { NotFoundPage } from './NotFoundPage';
 export function CampaignPage() {
-  const { t } = useTranslation();
-  const { id } = useParams<{ id: string }>();
+  const id = useParams().id ?? '';
   const navigate = useNavigate();
-  const { user } = useAuth();
-
-  const { data: campaign, isLoading } = useCampaign(id!);
-  const { data: participants } = useCampaignParticipants(id!);
-  const { data: reviews } = useCampaignReviews(id!);
-  const { data: myParticipation } = useMyParticipation(id!, user?.id);
-  const joinCampaign = useJoinCampaign();
-  const deleteCampaign = useDeleteCampaign();
-  const submitReview = useSubmitReview();
-  const updateReview = useUpdateReview();
-  const deleteReview = useDeleteReview();
-
-  useParticipantsRealtime(id ? [id] : []);
-
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [joinMessage, setJoinMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  if (isLoading) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const { user, loading, openAuth } = useAuth();
+  const query = useCampaign(id);
+  const participants = useCampaignParticipants(id);
+  const own = useMyParticipation(id, user?.id);
+  const isDM = !!user && user.id === query.data?.dm_id;
+  const discord = useCampaignDiscord(id, isDM || own.data?.status === 'accepted');
+  const join = useJoinCampaign();
+  const remove = useDeleteCampaign();
+  const leave = useWithdraw();
+  const [modal, setModal] = useState<'delete' | 'leave' | null>(null);
+  const [message, setMessage] = useState<{ success: boolean; key: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  if (!isCampaignId(id)) return <NotFoundPage />;
+  if (query.isPending) return <LoadingIndicator />;
+  if (query.isError)
     return (
-      <div className="max-w-4xl mx-auto px-4 py-12 space-y-6">
-        <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-8 w-2/3" />
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-48 w-full" />
+      <div className="page-shell page-content">
+        <ErrorState
+          error={query.error}
+          onRetry={() => {
+            void query.refetch();
+          }}
+        />
       </div>
     );
-  }
-
-  if (!campaign) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-12 text-center">
-        <h2 className="text-2xl font-bold text-text-primary mb-4">{t('campaign.notFound')}</h2>
-        <Button variant="outline" onClick={() => navigate('/')}>{t('common.backToCatalog')}</Button>
-      </div>
-    );
-  }
-
-  const isDM = user?.id === campaign.dm_id;
-  const acceptedPlayers = participants?.filter((p) => p.status === 'accepted') ?? [];
-  const isFull = acceptedPlayers.length >= campaign.max_players;
-
-  const handleJoin = async () => {
-    if (!user) return;
-    setJoinMessage(null);
+  const campaign = query.data;
+  if (!campaign) return <NotFoundPage />;
+  const joinCampaign = async () => {
+    if (!user || join.isPending) return;
+    setMessage(null);
     try {
-      await joinCampaign.mutateAsync({ campaignId: campaign.id, userId: user.id });
-      setJoinMessage({ type: 'success', text: t('campaign.applicationSent') });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('campaign.joinDefaultError');
-      setJoinMessage({ type: 'error', text: t('campaign.couldNotJoin', { message }) });
+      await join.mutateAsync({ campaignId: id });
+      setMessage({ success: true, key: 'campaign.applicationSent' });
+    } catch (error) {
+      setMessage({ success: false, key: errorKey(error) });
     }
   };
-
-  const handleSubmitReview = async (rating: number, comment: string) => {
-    if (!user) return;
-    await submitReview.mutateAsync({
-      campaignId: campaign.id,
-      authorId: user.id,
-      rating,
-      comment,
-    });
+  const confirm = async () => {
+    setActionError(null);
+    try {
+      if (modal === 'delete') {
+        await remove.mutateAsync(id);
+        navigate('/dashboard');
+      } else {
+        await leave.mutateAsync(id);
+        toast('campaign.withdrawn');
+      }
+      setModal(null);
+    } catch (error) {
+      setActionError(errorKey(error));
+    }
   };
-
-  const handleUpdateReview = async (reviewId: string, rating: number, comment: string) => {
-    await updateReview.mutateAsync({ reviewId, campaignId: campaign.id, rating, comment });
-  };
-
-  const handleDeleteReview = async (reviewId: string) => {
-    await deleteReview.mutateAsync({ reviewId, campaignId: campaign.id });
-  };
-
-  const handleDelete = async () => {
-    await deleteCampaign.mutateAsync(campaign.id);
-    navigate('/');
-  };
-
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-12 lg:py-20 animate-fade-in text-left">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-text-muted hover:text-text-primary mb-6 transition-colors cursor-pointer"
+    <div className="page-shell page-content animate-fade-in">
+      <Link
+        to="/#catalog"
+        className="inline-flex items-center gap-2 text-xs text-text-muted mb-7 hover:text-gold"
       >
-        <ArrowLeft size={18} /> {t('common.back')}
-      </button>
-
-      <CampaignHeader
-        campaign={campaign}
-        acceptedPlayers={acceptedPlayers}
-        myParticipation={myParticipation ?? null}
-        isDM={isDM}
-        isFull={isFull}
-        isLoggedIn={!!user}
-        isJoining={joinCampaign.isPending}
-        onJoin={handleJoin}
-      />
-
-      {joinMessage && (
-        <div className={`mb-6 px-4 py-3 rounded-lg text-sm ${
-          joinMessage.type === 'success'
-            ? 'bg-emerald/10 border border-emerald/30 text-emerald'
-            : 'bg-crimson/10 border border-crimson/30 text-crimson-light'
-        }`}>
-          {joinMessage.text}
-        </div>
-      )}
-
+        <ArrowLeft size={15} aria-hidden="true" />
+        {t('common.backToCatalog')}
+      </Link>
+      <CampaignHeader campaign={campaign} />
       {isDM && (
-        <div className="mb-6 flex gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate(`/campaign/${campaign.id}/edit`)}
-            icon={<Pencil size={16} />}
-          >
+        <div className="flex flex-wrap gap-3 mb-7">
+          <LinkButton to={`/campaign/${id}/edit`} size="sm" variant="secondary">
+            <Pencil size={14} aria-hidden="true" />
             {t('common.actions.edit')}
-          </Button>
+          </LinkButton>
           <Button
-            variant="danger"
             size="sm"
-            onClick={() => setDeleteModalOpen(true)}
-            icon={<Trash2 size={16} />}
+            variant="danger"
+            icon={<Trash2 size={14} />}
+            onClick={() => {
+              setModal('delete');
+              setActionError(null);
+            }}
           >
             {t('common.actions.delete')}
           </Button>
         </div>
       )}
-
-      <div className="glass-card-static p-8 mb-6">
-        <h2 className="text-2xl font-extrabold tracking-tight text-text-primary mb-6 flex items-center gap-3">
-          <Swords size={24} className="text-gold" /> {t('campaign.about')}
-        </h2>
-        <div className="markdown-content">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {campaign.description}
-          </ReactMarkdown>
+      <div className="detail-grid">
+        <div className="detail-main">
+          <section className="surface">
+            <h2>{t('campaign.about')}</h2>
+            {campaign.description ? (
+              <Markdown>{campaign.description}</Markdown>
+            ) : (
+              <p className="text-text-muted">{t('campaign.noDescription')}</p>
+            )}
+          </section>
+          {participants.isPending ? (
+            <LoadingIndicator />
+          ) : participants.isError ? (
+            <ErrorState
+              error={participants.error}
+              onRetry={() => {
+                void participants.refetch();
+              }}
+            />
+          ) : (
+            <CampaignPlayers
+              players={participants.data.filter((p) => p.status === 'accepted')}
+              maxPlayers={campaign.max_players}
+            />
+          )}
+          <CampaignReviews
+            campaignId={id}
+            currentUserId={user?.id}
+            canReview={!!user && !isDM && own.data?.status === 'accepted'}
+          />
         </div>
+        <ParticipationPanel
+          campaign={campaign}
+          userId={user?.id}
+          participation={own.data}
+          checking={loading || (!!user && own.isPending)}
+          joining={join.isPending}
+          privateUrl={discord.data}
+          privateError={discord.error}
+          participationError={own.error}
+          message={message}
+          onJoin={joinCampaign}
+          onSignIn={() => openAuth(`/campaign/${id}`)}
+          onLeave={() => {
+            setModal('leave');
+            setActionError(null);
+          }}
+          onRetry={() => {
+            void own.refetch();
+          }}
+        />
       </div>
-
-      <CampaignPlayers players={acceptedPlayers} maxPlayers={campaign.max_players} />
-
-      <CampaignReviews
-        reviews={reviews}
-        currentUserId={user?.id}
-        canReview={!!user && !isDM}
-        onSubmitReview={handleSubmitReview}
-        onUpdateReview={handleUpdateReview}
-        onDeleteReview={handleDeleteReview}
-        isSubmitting={submitReview.isPending || updateReview.isPending || deleteReview.isPending}
-      />
-
-      <Modal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title={t('campaign.deleteTitle')}>
-        <p className="text-text-secondary mb-6">
-          {t('campaign.deleteWarning', { title: campaign.title })}
+      <Modal
+        isOpen={!!modal}
+        title={t(modal === 'delete' ? 'campaign.deleteTitle' : 'campaign.leaveTitle')}
+        dismissible={!remove.isPending && !leave.isPending}
+        onClose={() => setModal(null)}
+      >
+        <p className="text-sm text-text-secondary mb-6">
+          {t(modal === 'delete' ? 'campaign.deleteWarning' : 'campaign.leaveDescription', {
+            title: campaign.title,
+          })}
         </p>
-        <div className="flex gap-3 justify-end">
-          <Button variant="ghost" onClick={() => setDeleteModalOpen(false)}>{t('common.actions.cancel')}</Button>
-          <Button variant="danger" onClick={handleDelete} loading={deleteCampaign.isPending}>
-            {t('common.actions.deleteForever')}
+        {actionError && (
+          <div className="mb-5">
+            <Alert>{t(actionError)}</Alert>
+          </div>
+        )}
+        <div className="flex flex-wrap justify-end gap-3">
+          <Button
+            variant="ghost"
+            disabled={remove.isPending || leave.isPending}
+            onClick={() => setModal(null)}
+          >
+            {t('common.actions.cancel')}
+          </Button>
+          <Button variant="danger" onClick={confirm} loading={remove.isPending || leave.isPending}>
+            {t(modal === 'delete' ? 'common.actions.deleteForever' : 'campaign.leave')}
           </Button>
         </div>
       </Modal>

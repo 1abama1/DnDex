@@ -1,192 +1,244 @@
-import { useState } from 'react';
-import { Pencil, Trash2, X, Check } from 'lucide-react';
-import { StarRating } from '@/components/ui/StarRating';
-import { Button } from '@/components/ui/Button';
-import { Avatar } from '@/components/ui/Avatar';
-import type { Review } from '@/types/database';
-import { format } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { useState, type FormEvent } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-
-interface CampaignReviewsProps {
-  reviews: Review[] | undefined;
-  currentUserId: string | undefined;
-  canReview: boolean;
-  onSubmitReview: (rating: number, comment: string) => Promise<void>;
-  onUpdateReview: (reviewId: string, rating: number, comment: string) => Promise<void>;
-  onDeleteReview: (reviewId: string) => Promise<void>;
-  isSubmitting: boolean;
+import { useCampaignReviews, useDeleteReview, useSaveReview } from '@/hooks/useReviews';
+import { useToast } from '@/hooks/toast-context';
+import { reviewSchema } from '@/lib/domain';
+import { errorKey } from '@/lib/errors';
+import { Avatar } from '@/components/ui/Avatar';
+import { Button, IconButton } from '@/components/ui/Button';
+import { StarRating } from '@/components/ui/StarRating';
+import { Textarea } from '@/components/ui/Input';
+import { Alert, ErrorState, LoadingIndicator } from '@/components/ui/Feedback';
+import { Modal } from '@/components/ui/Modal';
+import type { Review } from '@/types/database';
+function ReviewForm({
+  initial,
+  onSave,
+  onCancel,
+  busy,
+}: {
+  initial?: Review;
+  onSave: (rating: number, comment: string) => Promise<void>;
+  onCancel?: () => void;
+  busy: boolean;
+}) {
+  const { t } = useTranslation();
+  const [rating, setRating] = useState(initial?.rating ?? 5);
+  const [comment, setComment] = useState(initial?.comment ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    const parsed = reviewSchema.safeParse({ rating, comment });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0].message);
+      return;
+    }
+    setError(null);
+    try {
+      await onSave(parsed.data.rating, parsed.data.comment);
+      setComment('');
+    } catch (err) {
+      setError(errorKey(err));
+    }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <StarRating interactive rating={rating} onChange={setRating} size={22} />
+      <Textarea
+        label={t('campaign.writeReview')}
+        placeholder={t('campaign.reviewPlaceholder')}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        maxLength={2000}
+        required
+        disabled={busy}
+      />
+      {error && <Alert>{t(error)}</Alert>}
+      <div className="flex flex-wrap gap-3">
+        <Button type="submit" size="sm" loading={busy}>
+          {t(initial ? 'campaign.updateReview' : 'campaign.submitReview')}
+        </Button>
+        {onCancel && (
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+            {t('common.actions.cancel')}
+          </Button>
+        )}
+      </div>
+    </form>
+  );
 }
-
 export function CampaignReviews({
-  reviews,
+  campaignId,
   currentUserId,
   canReview,
-  onSubmitReview,
-  onUpdateReview,
-  onDeleteReview,
-  isSubmitting,
-}: CampaignReviewsProps) {
+}: {
+  campaignId: string;
+  currentUserId?: string;
+  canReview: boolean;
+}) {
   const { t, i18n } = useTranslation();
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editRating, setEditRating] = useState(5);
-  const [editComment, setEditComment] = useState('');
-
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const handleSubmit = async () => {
-    if (!reviewComment.trim()) return;
-    await onSubmitReview(reviewRating, reviewComment);
-    setReviewComment('');
-    setReviewRating(5);
+  const query = useCampaignReviews(campaignId);
+  const save = useSaveReview();
+  const remove = useDeleteReview();
+  const toast = useToast();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reviews = query.data ?? [];
+  const own = reviews.find((r) => r.author_id === currentUserId);
+  const busy = save.isPending || remove.isPending;
+  const persist = async (rating: number, comment: string, reviewId?: string) => {
+    await save.mutateAsync({ campaignId, rating, comment, reviewId });
+    setEditing(null);
+    toast('feedback.reviewSaved');
   };
-
-  const startEdit = (review: Review) => {
-    setEditingId(review.id);
-    setEditRating(review.rating);
-    setEditComment(review.comment);
+  const deleteReview = async () => {
+    if (!deleting || busy) return;
+    setError(null);
+    try {
+      await remove.mutateAsync({ reviewId: deleting, campaignId });
+      setDeleting(null);
+      toast('feedback.reviewDeleted');
+    } catch (err) {
+      setError(errorKey(err));
+    }
   };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditRating(5);
-    setEditComment('');
-  };
-
-  const saveEdit = async () => {
-    if (!editingId || !editComment.trim()) return;
-    await onUpdateReview(editingId, editRating, editComment);
-    setEditingId(null);
-  };
-
-  const confirmDelete = async (reviewId: string) => {
-    await onDeleteReview(reviewId);
-    setDeletingId(null);
-  };
-
-  const existingReview = reviews?.find((r) => r.author_id === currentUserId);
-  const canSubmitNew = canReview && !existingReview;
-
+  if (query.isPending) return <LoadingIndicator />;
+  if (query.isError)
+    return (
+      <section className="surface">
+        <h2>{t('campaign.reviews')}</h2>
+        <ErrorState
+          error={query.error}
+          onRetry={() => {
+            void query.refetch();
+          }}
+        />
+      </section>
+    );
+  const average = reviews.length
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+    : 0;
   return (
-    <div className="glass-card-static p-8">
-      <h2 className="text-xl font-extrabold tracking-tight text-text-primary mb-8 flex items-center gap-3">
-        {t('campaign.reviews')}
+    <section className="surface">
+      <h2>
+        {t('campaign.reviews')} <span className="text-text-muted text-xl">({reviews.length})</span>
       </h2>
-
-      {canSubmitNew && (
-        <div className="mb-8 p-4 rounded-xl bg-bg-tertiary border border-border">
-          <h3 className="text-sm font-medium text-text-primary mb-3">{t('campaign.submitReview')}</h3>
-          <div className="mb-3">
-            <StarRating rating={reviewRating} interactive onChange={setReviewRating} size={24} />
+      {reviews.length > 0 && (
+        <div className="review-distribution">
+          <div>
+            <span className="review-average">{average.toFixed(1)}</span>
+            <div>
+              <StarRating rating={average} size={12} />
+            </div>
           </div>
-          <textarea
-            value={reviewComment}
-            onChange={(e) => setReviewComment(e.target.value)}
-            placeholder={t('campaign.reviewPlaceholder')}
-            className="w-full px-4 py-2.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-gold/50 transition-all resize-y min-h-[80px] mb-3"
-          />
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            loading={isSubmitting}
-            disabled={!reviewComment.trim()}
-          >
-            {t('campaign.submitReview')}
+          <div className="distribution-bars">
+            {[5, 4, 3, 2, 1].map((rating) => {
+              const count = reviews.filter((r) => r.rating === rating).length;
+              return (
+                <div
+                  className="distribution-row"
+                  key={rating}
+                  aria-label={t('campaign.distribution', { rating, count })}
+                >
+                  <span>{rating}</span>
+                  <div className="distribution-track" aria-hidden="true">
+                    <span style={{ width: `${(count / reviews.length) * 100}%` }} />
+                  </div>
+                  <span>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {canReview && !own && (
+        <ReviewForm onSave={(rating, comment) => persist(rating, comment)} busy={busy} />
+      )}
+      {!canReview && !own && (
+        <p className="text-xs text-text-muted mb-5">{t('campaign.reviewEligibility')}</p>
+      )}
+      {!reviews.length && (
+        <p className="text-sm text-text-muted py-5">{t('campaign.beFirstToReview')}</p>
+      )}
+      {reviews.map((review) => (
+        <article className="review-card" key={review.id}>
+          {editing === review.id ? (
+            <ReviewForm
+              key={review.id}
+              initial={review}
+              onSave={(rating, comment) => persist(rating, comment, review.id)}
+              onCancel={() => setEditing(null)}
+              busy={busy}
+            />
+          ) : (
+            <>
+              <div className="review-heading">
+                <Avatar
+                  username={review.author?.username ?? t('common.unknown')}
+                  src={review.author?.avatar_url}
+                  size="sm"
+                />
+                <div className="text-xs">
+                  <strong>{review.author?.username ?? t('common.unknown')}</strong>
+                  <time className="block" dateTime={review.created_at}>
+                    {new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: 'medium' }).format(
+                      new Date(review.created_at),
+                    )}
+                  </time>
+                </div>
+                <div className="ml-auto flex items-center flex-wrap gap-1">
+                  <StarRating rating={review.rating} size={12} />
+                  {review.author_id === currentUserId && (
+                    <>
+                      <IconButton
+                        label={t('common.actions.edit')}
+                        disabled={busy}
+                        onClick={() => setEditing(review.id)}
+                      >
+                        <Pencil size={14} />
+                      </IconButton>
+                      <IconButton
+                        label={t('campaign.deleteReview')}
+                        disabled={busy}
+                        onClick={() => {
+                          setDeleting(review.id);
+                          setError(null);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </IconButton>
+                    </>
+                  )}
+                </div>
+              </div>
+              <p>{review.comment}</p>
+            </>
+          )}
+        </article>
+      ))}
+      <Modal
+        isOpen={!!deleting}
+        title={t('campaign.deleteReviewConfirm')}
+        onClose={() => setDeleting(null)}
+        dismissible={!busy}
+      >
+        {error && (
+          <div className="mb-5">
+            <Alert>{t(error)}</Alert>
+          </div>
+        )}
+        <div className="flex gap-3 justify-end">
+          <Button variant="ghost" disabled={busy} onClick={() => setDeleting(null)}>
+            {t('common.actions.cancel')}
+          </Button>
+          <Button variant="danger" loading={busy} onClick={deleteReview}>
+            {t('campaign.yesDelete')}
           </Button>
         </div>
-      )}
-
-      {reviews && reviews.length > 0 ? (
-        <div className="space-y-4">
-          {reviews.map((review) => {
-            const isOwner = review.author_id === currentUserId;
-            const isEditing = editingId === review.id;
-            const isDeleting = deletingId === review.id;
-
-            return (
-              <div key={review.id} className="p-4 rounded-xl bg-bg-tertiary/50 border border-border/50">
-                {isEditing ? (
-                  <div className="space-y-3">
-                    <div>
-                      <StarRating rating={editRating} interactive onChange={setEditRating} size={24} />
-                    </div>
-                    <textarea
-                      value={editComment}
-                      onChange={(e) => setEditComment(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-gold/50 transition-all resize-y min-h-[80px]"
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={saveEdit} loading={isSubmitting} icon={<Check size={14} />}>
-                        {t('common.actions.save')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={cancelEdit} icon={<X size={14} />}>
-                        {t('common.actions.cancel')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 mb-2">
-                      <Avatar
-                        src={review.author?.avatar_url}
-                        username={review.author?.username ?? 'Anonymous'}
-                        size="sm"
-                      />
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">
-                          {review.author?.username ?? 'Anonymous'}
-                        </div>
-                        <div className="text-xs text-text-muted">
-                          {format(new Date(review.created_at), 'MMM d, yyyy', { locale: i18n.language === 'ru' ? ru : undefined })}
-                        </div>
-                      </div>
-                      <div className="ml-auto flex items-center gap-2">
-                        <StarRating rating={review.rating} size={14} />
-                        {isOwner && !isDeleting && (
-                          <div className="flex gap-1 ml-2">
-                            <button
-                              onClick={() => startEdit(review)}
-                              className="p-1 rounded text-text-muted hover:text-gold hover:bg-gold/10 transition-all cursor-pointer"
-                              title={t('common.actions.edit')}
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              onClick={() => setDeletingId(review.id)}
-                              className="p-1 rounded text-text-muted hover:text-crimson-light hover:bg-crimson/10 transition-all cursor-pointer"
-                              title={t('common.actions.delete')}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-sm text-text-secondary leading-relaxed">{review.comment}</p>
-
-                    {isDeleting && (
-                      <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-crimson/5 border border-crimson/20">
-                        <span className="text-sm text-text-secondary">{t('campaign.deleteReviewConfirm')}</span>
-                        <Button size="sm" variant="danger" onClick={() => confirmDelete(review.id)} loading={isSubmitting}>
-                          {t('campaign.yesDelete')}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeletingId(null)}>
-                          {t('common.actions.cancel')}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-text-muted text-sm text-center py-4">{t('campaign.beFirstToReview')}</p>
-      )}
-    </div>
+      </Modal>
+    </section>
   );
 }

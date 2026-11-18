@@ -1,51 +1,61 @@
-import { useCampaign } from '@/hooks/useCampaigns';
-import { CampaignForm } from '@/components/campaigns/CampaignForm';
-import { Pencil } from 'lucide-react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { Button } from '@/components/ui/Button';
+import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-
+import { useCampaign, useCampaignDiscord } from '@/hooks/useCampaigns';
+import { useAuth } from '@/hooks/auth-context';
+import { isCampaignId } from '@/lib/domain';
+import { CampaignForm } from '@/components/campaigns/CampaignForm';
+import { Alert, ErrorState, LoadingIndicator } from '@/components/ui/Feedback';
+import { LinkButton } from '@/components/ui/LinkButton';
+import { NotFoundPage } from './NotFoundPage';
 export function EditCampaignPage() {
+  const id = useParams().id ?? '';
   const { t } = useTranslation();
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { data: campaign, isLoading } = useCampaign(id!);
-
-  if (isLoading) {
+  const { user } = useAuth();
+  const query = useCampaign(id);
+  const owned = !!user && user.id === query.data?.dm_id;
+  const discord = useCampaignDiscord(id, owned);
+  if (!isCampaignId(id)) return <NotFoundPage />;
+  if (query.isPending) return <LoadingIndicator />;
+  if (query.isError)
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12 space-y-6">
-        <Skeleton className="h-8 w-1/3" />
-        <Skeleton className="h-64 w-full" />
+      <div className="page-shell page-content">
+        <ErrorState
+          error={query.error}
+          onRetry={() => {
+            void query.refetch();
+          }}
+        />
       </div>
     );
-  }
-
-  if (!campaign) {
+  if (!query.data) return <NotFoundPage />;
+  if (!owned)
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12 text-center">
-        <h2 className="text-2xl font-bold text-text-primary mb-4">{t('campaign.notFound')}</h2>
-        <Button variant="outline" onClick={() => navigate('/')}>{t('common.backToCatalog')}</Button>
+      <div className="page-shell page-content">
+        <Alert>{t('errors.unauthorized')}</Alert>
+        <LinkButton to={`/campaign/${id}`} variant="outline" className="mt-6">
+          {t('common.back')}
+        </LinkButton>
       </div>
     );
-  }
-
+  if (discord.isPending) return <LoadingIndicator />;
+  if (discord.isError)
+    return (
+      <div className="page-shell page-content">
+        <ErrorState
+          error={discord.error}
+          onRetry={() => {
+            void discord.refetch();
+          }}
+        />
+      </div>
+    );
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 py-16 animate-fade-in text-left">
-      <div className="text-center mb-10">
-        <div className="inline-flex p-3 rounded-2xl bg-gold/10 mb-4">
-          <Pencil size={28} className="text-gold" />
-        </div>
-        <h1 className="text-4xl font-extrabold tracking-tight text-white mb-3">
-          {t('campaign.editTitle')}
-        </h1>
-        <p className="text-white/60 text-lg">
-          {campaign.title}
-        </p>
-      </div>
-
-      <div className="glass-card-static p-8 sm:p-10">
-        <CampaignForm campaign={campaign} />
+    <div className="page-shell page-content max-w-4xl animate-fade-in">
+      <p className="eyebrow mb-5">{t('campaign.dossier')}</p>
+      <h1 className="form-title">{t('campaign.editTitle')}</h1>
+      <p className="form-intro">{query.data.title}</p>
+      <div className="surface">
+        <CampaignForm campaign={query.data} discordUrl={discord.data} />
       </div>
     </div>
   );

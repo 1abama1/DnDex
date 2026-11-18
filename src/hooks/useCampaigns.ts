@@ -1,148 +1,81 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/hooks/useAuth';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from './auth-context';
 import { queryKeys } from '@/lib/queryKeys';
-import type { Campaign, CampaignFilters } from '@/types/database';
-
-async function fetchCampaigns(filters: CampaignFilters): Promise<Campaign[]> {
-  let query = supabase
-    .from('campaigns_with_stats')
-    .select('*, dm:profiles!dm_id(*)');
-
-  if (filters.search) {
-    query = query.ilike('title', `%${filters.search}%`);
-  }
-  if (filters.type && filters.type !== 'all') {
-    query = query.eq('type', filters.type);
-  }
-  if (filters.system && filters.system !== 'all') {
-    query = query.eq('system', filters.system);
-  }
-  if (filters.status && filters.status !== 'all') {
-    query = query.eq('status', filters.status);
-  }
-  if (filters.sortBy === 'rating') {
-    query = query.order('avg_rating', { ascending: false });
-  } else {
-    query = query.order('created_at', { ascending: false });
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as Campaign[];
-}
-
-export function useCampaigns(filters: CampaignFilters = {}) {
+import { isCampaignId, type CampaignFormValues } from '@/lib/domain';
+import { refreshCampaign } from '@/lib/cache';
+import * as campaigns from '@/services/campaigns';
+import type { CampaignFilters } from '@/types/database';
+export function useCampaigns(filters: CampaignFilters = {}, enabled = true) {
   return useQuery({
     queryKey: queryKeys.campaigns.list(filters),
-    queryFn: () => fetchCampaigns(filters),
-    staleTime: 30_000,
+    queryFn: ({ signal }) => campaigns.listCampaigns(filters, signal),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
-
-async function fetchCampaign(id: string): Promise<Campaign | null> {
-  const { data, error } = await supabase
-    .from('campaigns_with_stats')
-    .select('*, dm:profiles!dm_id(*)')
-    .eq('id', id)
-    .single();
-
-  if (error) throw error;
-  return data as Campaign;
-}
-
 export function useCampaign(id: string) {
   return useQuery({
     queryKey: queryKeys.campaigns.detail(id),
-    queryFn: () => fetchCampaign(id),
-    enabled: !!id,
+    queryFn: ({ signal }) => campaigns.getCampaign(id, signal),
+    enabled: isCampaignId(id),
   });
 }
-
-interface CreateCampaignInput {
-  title: string;
-  description: string;
-  type: 'campaign' | 'one_shot';
-  system: string;
-  max_players: number;
-  discord_url?: string;
-  schedule?: string;
-  cover_url?: string;
-}
-
-export function useCreateCampaign() {
-  const queryClient = useQueryClient();
+export function useCampaignDiscord(id: string, allowed: boolean) {
   const { user } = useAuth();
-
-  return useMutation({
-    mutationFn: async (input: CreateCampaignInput) => {
-      if (!user) throw new Error('Must be logged in to create a campaign');
-
-      const { data, error } = await supabase
-        .from('campaigns')
-        .insert({
-          ...input,
-          dm_id: user.id,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Campaign;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all });
-    },
-  });
-}
-
-export function useUpdateCampaign() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<Campaign> & { id: string }) => {
-      const { data, error } = await supabase
-        .from('campaigns')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as Campaign;
-    },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.detail(vars.id) });
-    },
-  });
-}
-
-export function useDeleteCampaign() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('campaigns').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.campaigns.all });
-    },
-  });
-}
-
-export function useDMCampaigns(dmId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.campaigns.dm(dmId ?? ''),
-    queryFn: async () => {
-      if (!dmId) return [];
-      const { data, error } = await supabase
-        .from('campaigns_with_stats')
-        .select('*, dm:profiles!dm_id(*)')
-        .eq('dm_id', dmId)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as Campaign[];
+    queryKey: queryKeys.campaigns.private(id, user?.id ?? ''),
+    queryFn: () => campaigns.getCampaignDiscord(id),
+    enabled: !!user && allowed && isCampaignId(id),
+  });
+}
+export function useCreateCampaign() {
+  const client = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: (input: CampaignFormValues) => {
+      if (!user) throw new Error('errors.permission');
+      return campaigns.saveCampaign(input, user.id);
     },
-    enabled: !!dmId,
+    onSuccess: (data) => refreshCampaign(client, data.id),
+  });
+}
+export function useUpdateCampaign() {
+  const client = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: ({ id, ...input }: CampaignFormValues & { id: string }) => {
+      if (!user) throw new Error('errors.permission');
+      return campaigns.saveCampaign(input, user.id, id);
+    },
+    onSuccess: (data) =>
+      Promise.all([
+        refreshCampaign(client, data.id),
+        client.invalidateQueries({ queryKey: ['private', 'campaign', data.id] }),
+      ]),
+  });
+}
+export function useDeleteCampaign() {
+  const client = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: (id: string) => {
+      if (!user) throw new Error('errors.permission');
+      return campaigns.removeCampaign(id, user.id);
+    },
+    onSuccess: (_data, id) => {
+      client.removeQueries({ queryKey: queryKeys.campaigns.detail(id) });
+      client.removeQueries({ queryKey: ['private', 'campaign', id] });
+      return Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.campaigns.all }),
+        client.invalidateQueries({ queryKey: queryKeys.participants.all }),
+      ]);
+    },
+  });
+}
+export function useDMCampaigns(id: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.campaigns.dm(id ?? ''),
+    queryFn: () => campaigns.getDMCampaigns(id!),
+    enabled: !!id,
   });
 }

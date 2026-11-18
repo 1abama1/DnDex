@@ -1,73 +1,89 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-
+import { useTranslation } from 'react-i18next';
+import { IconButton } from './Button';
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string;
+  title: string;
   children: ReactNode;
   maxWidth?: string;
+  dismissible?: boolean;
 }
-
-export function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
-  // Close on Escape
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  maxWidth = 'max-w-lg',
+  dismissible = true,
+}: ModalProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const { t } = useTranslation();
   useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [isOpen, onClose]);
-
-  // Prevent body scroll
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    const dialog = ref.current;
+    if (!isOpen || !dialog) return;
+    const opener = document.activeElement;
+    const overflow = document.body.style.overflow;
+    dialog.showModal(); // Native modal semantics, focus trap and inert background.
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.body.style.overflow = '';
+      dialog.close();
+      document.body.style.overflow = overflow;
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in"
-        onClick={onClose}
-      />
-
-      {/* Modal Content */}
-      <div
-        className={`
-          relative w-full ${maxWidth}
-          glass-card-static p-6
-          animate-fade-in-up
-          max-h-[90vh] overflow-y-auto
-        `}
-      >
-        {/* Header */}
-        {title && (
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-extrabold tracking-tight text-white">
-              {title}
-            </h2>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-all cursor-pointer"
-            >
-              <X size={18} />
-            </button>
-          </div>
-        )}
-
+  return createPortal(
+    <dialog
+      ref={ref}
+      aria-labelledby={titleId}
+      className={`modal ${maxWidth}`}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const focusable = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button, a[href], input, select, textarea, [tabindex]',
+          ),
+        ).filter(
+          (element) =>
+            element.tabIndex >= 0 &&
+            !element.matches(':disabled') &&
+            element.getClientRects().length > 0,
+        );
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (!first || !last) {
+          event.preventDefault();
+          return;
+        }
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (dismissible) onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && dismissible) onClose();
+      }}
+    >
+      <div className="modal-panel">
+        <div className="modal-heading">
+          <h2 id={titleId}>{title}</h2>
+          <IconButton label={t('common.close')} onClick={onClose} disabled={!dismissible}>
+            <X size={20} />
+          </IconButton>
+        </div>
         {children}
       </div>
-    </div>
+    </dialog>,
+    document.body,
   );
 }

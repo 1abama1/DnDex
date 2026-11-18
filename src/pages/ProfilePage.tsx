@@ -1,25 +1,24 @@
-import { User } from 'lucide-react';
-import { ProfileForm } from '@/components/profile/ProfileForm';
 import { useTranslation } from 'react-i18next';
-
+import { useAuth } from '@/hooks/auth-context';
+import { ProfileForm } from '@/components/profile/ProfileForm';
+import { ErrorState, LoadingIndicator } from '@/components/ui/Feedback';
 export function ProfilePage() {
   const { t } = useTranslation();
-  return (
-    <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 py-16 animate-fade-in text-left">
-      <div className="text-center mb-10">
-        <div className="inline-flex p-3 rounded-2xl bg-gold/10 mb-4">
-          <User size={28} className="text-gold" />
-        </div>
-        <h1 className="text-4xl font-extrabold tracking-tight text-white mb-3">
-          {t('profile.editTitle')}
-        </h1>
-        <p className="text-white/60 text-lg">
-          {t('profile.editDescription')}
-        </p>
+  const { profile, profileLoading, profileError, retryProfile } = useAuth();
+  if (profileLoading) return <LoadingIndicator />;
+  if (profileError || !profile)
+    return (
+      <div className="page-shell page-content">
+        <ErrorState error={profileError} onRetry={retryProfile} />
       </div>
-
-      <div className="glass-card-static p-8 sm:p-10">
-        <ProfileForm />
+    );
+  return (
+    <div className="page-shell page-content max-w-3xl animate-fade-in">
+      <p className="eyebrow mb-5">{t('home.artLabel')}</p>
+      <h1 className="form-title">{t('profile.editTitle')}</h1>
+      <p className="form-intro">{t('profile.editDescription')}</p>
+      <div className="surface">
+        <ProfileForm key={profile.id} profile={profile} />
       </div>
     </div>
   );
